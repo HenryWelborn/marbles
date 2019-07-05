@@ -110,58 +110,129 @@ Now, we will start creating our Hyperledger Fabric network.
 
 ## 3. Install IBM Blockchain Platform for Multicloud
 
-* Once you have obtaned the IBM Blockchain Platform for Multicloud software, you need to load the archive into IBM Cloud Private.  You will need access to the IBM Private Cloud command line interface tools for this step.
+Once you have obtaned the IBM Blockchain Platform for Multicloud software, you need to load the archive into IBM Cloud Private.  You will need access to the IBM Private Cloud command line interface tools for this step.
 
-1. Login to the ICP server and the Private Docker Registry
+* Login to the ICP server and the Private Docker Registry
 	
 ```bash
 /usr/local/bin/cloudctl login -u $ICP_USER -p $ICP_PASS
 docker login -u $ICP_USER -p $ICP_PASS mycluster.icp:8500 
 ```
 
-2. Load the archive
+* Load the archive
 
-`cloudctl catalog load-ppa-archive --archive ~/ibm-blockchain-platform-prod-2.0.0.tar.gz`
+```bash
+/usr/local/bin/cloudctl catalog load-ppa-archive --archive ~/ibm-blockchain-platform-prod-2.0.0.tar.gz
+```
 
-3. (Optional) Create Persistent Volumes
+* (Optional) Create Persistent Volumes
 
 In this demonstration we will use Kubernetes [Local Storage](https://kubernetes.io/docs/concepts/storage/volumes/#local)
 
+With Local Volumes, we need directories defined on every worker node, a dedicated StorageClass, and PersistentVolume definitions.  Here's a sample bash script that creates directories under `/tmp` on each worker node. For Production you must ensure proper file permission security and ownership procedures
+are followed.
 
+```bash
+#!/usr/bin/env bash
+
+StorageClass=blockchain-local-storage
+
+#####################################################################################
+# Scans kubernetes nodes via kubectl to get the  IP addresses for all workers.
+#####################################################################################
+declare -a nodes=()
+output=$(kubectl get nodes -l node-role.kubernetes.io/worker=true --no-headers | awk '{print $1}')
+nodes=($output)
+
+#####################################################################################
+# Create a storage class driver
+#####################################################################################
+cat > /tmp/${StorageClass}-storageclass.yaml <<EOF
+  kind: StorageClass
+  apiVersion: storage.k8s.io/v1
+  metadata:
+    name: ${StorageClass}
+  provisioner: kubernetes.io/no-provisioner
+  volumeBindingMode: WaitForFirstConsumer
+EOF
+
+kubectl create -f /tmp/${StorageClass}-storageclass.yaml
+
+#####################################################################################
+# 1. executes SSH to all the worker nodes to create directories under /tmp
+#    - Creates 5 directories per node
+#    - Odd numbers are 100Gi, Even Numbers are 10Gi
+# 2. Creates PersistentVolume definitions referencing each of the directories 
+#####################################################################################
+for x in "${nodes[@]}"; do
+
+  for i in {1..5}
+  do
+    sudo ssh $x mkdir -p /tmp/${StorageClass}-$i
+
+  SIZE=10Gi
+  if [ $((i%2)) -eq 0 ]; then
+    SIZE=100Gi
+  fi
+  
+cat > /tmp/${StorageClass}-pv-${x}-${i}.yml <<EOF
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: ${StorageClass}-$x-$i
+  labels:
+    type: local
+spec:
+  capacity:
+    storage: $SIZE
+  accessModes:
+  - ReadWriteMany
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: ${StorageClass}
+  local:
+    path: /tmp/${StorageClass}-$i
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+      - matchExpressions:
+        - key: kubernetes.io/hostname
+          operator: In
+          values:
+          - ${x}
+EOF
+
+  kubectl create -f /tmp/${StorageClass}-pv-${x}-${i}.yml
+done
+
+done  
+```
+
+* Define the temporary password to be used during login.  You need to create a Kubernetes secret to store this password.  You will be prompted to change it on your first login to the IBM Blockchain Platform console.
+
+```bash
+kubectl create secret generic ibm-blockchain-password --from-literal=password=password
+```
+
+* Deploy the [IBM Blockchain Platform for Multicloud](https://cloud.ibm.com/docs/services/blockchain?topic=blockchain-console-deploy-icp) console.  You can find the service in the `Catalog`, and give a name and quick parameters. If you are using LinuxONE then you must change one additional parameter.
 
 <br>
 <p align="center">
-  <img src="docs/doc-gifs/create-ibm-kubernetes-service.gif">
+  <img src="./doc-gifs/create-ibm-blockchain-service.gif">
 </p>
 <br>
 
-* Create the [IBM Blockchain Platform](https://console.bluemix.net/catalog/services/blockchain/) service on the IBM Cloud.  You can find the service in the `Catalog`, and give a name.
-
-<br>
-<p align="center">
-  <img src="docs/doc-gifs/create-ibm-blockchain-2-service.gif">
-</p>
-<br>
-
-* After your kubernetes cluster is up and running, you can deploy your IBM Blockchain Platform on the cluster.  The service walks through few steps and finds your cluster on the IBM Cloud to deploy the service on.
-
-<br>
-<p align="center">
-  <img src="docs/doc-gifs/deployblockchainservice.gif">
-</p>
-<br>
 
 * Once the Blockchain Platform is deployed on the Kubernetes cluster, you can launch the console to start operating on your blockchain network.
 
 <br>
 <p align="center">
-  <img src="docs/doc-gifs/launch-ibm-blockchain.gif">
+  <img src="./doc/doc-gifs/launch-ibm-blockchain.gif">
 </p>
 <br>
 
 ## 4. Build a network
 
-We will build a network as provided by the IBM Blockchain Platform [documentation](https://console.bluemix.net/docs/services/blockchain/howto/ibp-console-build-network.html#ibp-console-build-network).  This will include creating a channel with a single peer organization with its own MSP and CA (Certificate Authority), and an orderer organization with its own MSP and CA. We will create the respective identities to deploy peers and operate nodes.
+We will build a network as provided by the IBM Blockchain Platform [documentation](https://cloud.ibm.com/docs/services/blockchain/howto/ibp-console-build-network.html#ibp-console-build-network).  This will include creating a channel with a single peer organization with its own MSP and CA (Certificate Authority), and an orderer organization with its own MSP and CA. We will create the respective identities to deploy peers and operate nodes.
 
 ### Create your organization and your entry point to your blockchain
 
@@ -173,24 +244,24 @@ We will build a network as provided by the IBM Blockchain Platform [documentatio
 
 <br>
 <p align="center">
-  <img src="docs/doc-gifs/createpeerorg1-CA.gif">
+  <img src="./doc-gifs/createpeerorg1-CA.gif">
 </p>
 <br>
 
 
-* #### Use your CA to register identities
+* Use your CA to register identities
   - Select the <b>Org 1 CA</b> Certificate Authority that we created.
   - First, we will register an admin for our organization "org1". Click on the <b>Register User</b> button.  Give an <b>Enroll ID</b> of `org1admin`, and <b>Enroll Secret</b> of `org1adminpw`.  Click <b>Next</b>.  Set the <b>Type</b> for this identity as `client` and select from any of the affiliated organizations from the drop-down list. We will leave the <b>Maximum enrollments</b> and <b>Add Attributes</b> fields blank.
   - We will repeat the process to create an identity of the peer. Click on the <b>Register User</b> button.  Give an <b>Enroll ID</b> of `peer1`, and <b>Enroll Secret</b> of `peer1pw`.  Click <b>Next</b>.  Set the <b>Type</b> for this identity as `peer` and select from any of the affiliated organizations from the drop-down list. We will leave the <b>Maximum enrollments</b> and <b>Add Attributes</b> fields blank.
 
 <br>
 <p align="center">
-  <img src="docs/doc-gifs/org1caregister-identities.gif">
+  <img src="./doc-gifs/org1caregister-identities.gif">
 </p>
 <br>
 
 
-* #### Create the peer organization MSP definition
+* Create the peer organization MSP definition
   - Navigate to the <b>Organizations</b> tab in the left navigation and click <b>Create MSP definition</b>.
   - Enter the <b>MSP Display name</b> as `Org1 MSP` and an <b>MSP ID</b> of `org1msp`.
   - Under <b>Root Certificate Authority</b> details, specify the peer CA that we created `Org1 CA` as the root CA for the organization.
@@ -199,7 +270,7 @@ We will build a network as provided by the IBM Blockchain Platform [documentatio
 
 <br>
 <p align="center">
-  <img src="docs/doc-gifs/peerorgmsp-def.gif">
+  <img src="./doc-gifs/peerorgmsp-def.gif">
 </p>
 <br>
 
@@ -215,13 +286,13 @@ We will build a network as provided by the IBM Blockchain Platform [documentatio
 
 <br>
 <p align="center">
-  <img src="docs/doc-gifs/createpeer.gif">
+  <img src="./doc-gifs/createpeer.gif">
 </p>
 <br>
 
 ### Create the node that orders transactions
 
-* #### Create your orderer organization CA
+* Create your orderer organization CA
   - Click <b>Add Certificate Authority</b>.
   - Click <b>IBM Cloud</b> under <b>Create Certificate Authority</b> and <b>Next</b>.
   - Give it a unique <b>Display name</b> of `Orderer CA`.  
@@ -229,23 +300,23 @@ We will build a network as provided by the IBM Blockchain Platform [documentatio
 
 <br>
 <p align="center">
-  <img src="docs/doc-gifs/ordererorg-ca.gif">
+  <img src="./doc-gifs/ordererorg-ca.gif">
 </p>
 <br>
 
-* #### Use your CA to register orderer and orderer admin identities
+* Use your CA to register orderer and orderer admin identities
   - In the <b>Nodes</b> tab, select the <b>Orderer CA</b> Certificate Authority that we created.
   - First, we will register an admin for our organization. Click on the <b>Register User</b> button.  Give an <b>Enroll ID</b> of `ordereradmin`, and <b>Enroll Secret</b> of `ordereradminpw`.  Click <b>Next</b>.  Set the <b>Type</b> for this identity as `client` and select from any of the affiliated organizations from the drop-down list. We will leave the <b>Maximum enrollments</b> and <b>Add Attributes</b> fields blank.
   - We will repeat the process to create an identity of the orderer. Click on the <b>Register User</b> button.  Give an <b>Enroll ID</b> of `orderer1`, and <b>Enroll Secret</b> of `orderer1pw`.  Click <b>Next</b>.  Set the <b>Type</b> for this identity as `peer` and select from any of the affiliated organizations from the drop-down list. We will leave the <b>Maximum enrollments</b> and <b>Add Attributes</b> fields blank.
 
 <br>
 <p align="center">
-  <img src="docs/doc-gifs/orderercaregister-identities.gif">
+  <img src="./doc-gifs/orderercaregister-identities.gif">
 </p>
 <br>
 
 
-* #### Create the orderer organization MSP definition
+* Create the orderer organization MSP definition
   - Navigate to the <b>Organizations</b> tab in the left navigation and click <b>Create MSP definition</b>.
   - Enter the <b>MSP Display name</b> as `Orderer MSP` and an <b>MSP ID</b> of `orderermsp`.
   - Under <b>Root Certificate Authority</b> details, specify the peer CA that we created `Orderer CA` as the root CA for the organization.
@@ -254,14 +325,14 @@ We will build a network as provided by the IBM Blockchain Platform [documentatio
 
 <br>
 <p align="center">
-  <img src="docs/doc-gifs/ordererorgmsp-def.gif">
+  <img src="./doc-gifs/ordererorgmsp-def.gif">
 </p>
 <br>
 
-* #### Create an orderer
+* Create an orderer
   - On the <b>Nodes</b> page, click <b>Add orderering service</b>.
   - Click <b>IBM Cloud</b> and proceed with <b>Next</b>.
-  - Give your peer a <b>Display name</b> of `Orderer`.
+  - Give your peer a <b>Display name</b> of `Orderer` and select 5 nodes.
   - On the next screen, select `Orderer CA` as your <b>Certificate Authority</b>. Then, give the <b>Enroll ID</b> and <b>Enroll secret</b> for the peer identity that you created for your orderer, `orderer1`, and `orderer1pw`. Then, select the <b>Administrator Certificate (from MSP)</b>, `Orderer MSP`, from the drop-down list and click <b>Next</b>.
   - Give the <b>TLS Enroll ID</b>, `admin`, and <b>TLS Enroll secret</b>, `adminpw`, the same values are the Enroll ID and Enroll secret that you gave when creating the CA.  Leave the <b>TLS CSR hostname</b> blank.
   - The last side panel will ask to <b>Associate an identity</b> and make it the admin of your peer. Select your peer admin identity `Orderer Admin`.
@@ -269,11 +340,11 @@ We will build a network as provided by the IBM Blockchain Platform [documentatio
 
 <br>
 <p align="center">
-  <img src="docs/doc-gifs/createorderer.gif">
+  <img src="./doc-gifs/createorderer.gif">
 </p>
 <br>
 
-* #### Add organization as Consortium Member on the orderer to transact
+* Add organization as Consortium Member on the orderer to transact
   - Navigate to the <b>Nodes</b> tab, and click on the <b>Orderer</b> that we created.
   - Under <b>Consortium Members</b>, click <b>Add organization</b>.
   - From the drop-down list, select `Org1 MSP`, as this is the MSP that represents the peer's organization org1.
@@ -281,14 +352,14 @@ We will build a network as provided by the IBM Blockchain Platform [documentatio
 
 <br>
 <p align="center">
-  <img src="docs/doc-gifs/addorg-orderer.gif">
+  <img src="./doc-gifs/addorg-orderer.gif">
 </p>
 <br>
 
 
 ### Create and join channel
 
-* #### Create the channel
+* Create the channel
   - Navigate to the <b>Channels</b> tab in the left navigation.
   - Click <b>Create channel</b>.
   - Give the channel a name, `mychannel`.
@@ -301,12 +372,12 @@ We will build a network as provided by the IBM Blockchain Platform [documentatio
 
 <br>
 <p align="center">
-  <img src="docs/doc-gifs/createchannel.gif">
+  <img src="./doc-gifs/createchannel.gif">
 </p>
 <br>
 
 
-* #### Join your peer to the channel
+* Join your peer to the channel
   - Click <b>Join channel</b> to launch the side panels.
   - Select your `Orderer` and click <b>Next</b>.
   - Enter the name of the channel you just created. `mychannel` and click <b>Next</b>.
@@ -315,7 +386,7 @@ We will build a network as provided by the IBM Blockchain Platform [documentatio
 
 <br>
 <p align="center">
-  <img src="docs/doc-gifs/joinchannel.gif">
+  <img src="./doc-gifs/joinchannel.gif">
 </p>
 <br>
 
@@ -323,35 +394,35 @@ We will build a network as provided by the IBM Blockchain Platform [documentatio
 ## 5. Deploy the smart contract on the network
 
 
-* #### Install a smart contract
+* Install a smart contract
   - Click the <b>Smart contracts</b> tab to install the smart contract.
-  - Click <b>Install smart contract</b> to upload the Fabcar smart contract package file, which you packaged earlier using the Visual Studio code extension.
+  - Click <b>Install smart contract</b> to upload the smart contract package file, which you packaged earlier using the Visual Studio code extension.
   - Click on <b>Add file</b> and find your packaged smart contract.  
   - Once the contract is uploaded, click <b>Install</b>.
 
 
 <br>
 <p align="center">
-  <img src="docs/doc-gifs/install-smart-contract.gif">
+  <img src="./doc-gifs/install-smart-contract.gif">
 </p>
 <br>
 
-* #### Instantiate smart contract
+* Instantiate smart contract
   - On the smart contracts tab, find the smart contract from the list installed on your peers and click <b>Instantiate</b> from the overflow menu on the right side of the row.
   - On the side panel that opens, select the channel, `mychannel` to instantiate the smart contract on. Click <b>Next</b>.
   - Select the organization members to be included in the policy, `org1msp`.  Click <b>Next</b> twice.
-  - Give <b>Function name</b> of `initLedger` and leave <b>Arguments</b> blank.
+  - Give <b>Function name</b> of `Init` and leave <b>Arguments</b> blank.
   - Click <b>Instantiate</b>.
 
 <br>
 <p align="center">
-  <img src="docs/doc-gifs/instantiatesmart-contract.gif">
+  <img src="./doc-gifs/instantiatesmart-contract.gif">
 </p>
 <br>
 
 ## 6. Connect application to the network
 
-* #### Connect with sdk through connection profile
+* Connect with sdk through connection profile
   - Under the Instantiated Smart Contract, click on `Connect with SDK` from the overflow menu on the right side of the row.
   - Choose from the dropdown for <b>MSP for connection</b>, `org1msp`.
   - Choose from <b>Certificate Authority</b> dropdown, `Org1 CA`.
@@ -360,11 +431,11 @@ We will build a network as provided by the IBM Blockchain Platform [documentatio
 
 <br>
 <p align="center">
-  <img src="docs/doc-gifs/connectwith-sdk.gif">
+  <img src="./doc-gifs/connectwith-sdk.gif">
 </p>
 <br>
 
-* #### Create an application admin
+* Create an application admin
   - Go to the <b>Nodes</b> tab on the left bar, and under <b>Certificate Authorities</b>, choose your organization CA, <b>Org1 CA</b>.
   - Click on <b>Register user</b>.
   - Give an <b>Enroll ID</b> and <b>Enroll Secret</b> to administer your application users, `app-admin` and `app-adminpw`.
@@ -375,7 +446,7 @@ We will build a network as provided by the IBM Blockchain Platform [documentatio
 
 <br>
 <p align="center">
-  <img src="docs/doc-gifs/register-app-admin.gif">
+  <img src="./doc-gifs/register-app-admin.gif">
 </p>
 <br>
 
