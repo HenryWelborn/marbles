@@ -451,98 +451,54 @@ We will build a network as provided by the IBM Blockchain Platform [documentatio
 <br>
 
 
-* #### Update application connection
-  - Copy the connection profile you downloaded into [server folder](web-app/server)
-  - Update the [config.json](web-app/server/config.json) file with:
-    - The connection json file name you downloaded.
+* Update application connection
+  - Copy the connection profile you downloaded into `marbles/config` renamed to `connection_profile_tls.json`
+  - Update the `connection_profile_tls.json` file with:
     - The <b>enroll id</b> and <b>enroll secret</b> for your app admin, which we earlier provided as `app-admin` and `app-adminpw`.
-    - The orgMSP ID, which we provided as `org1msp`.
-    - The caName, which can be found in your connection json file under "organization" -> "org1msp" -> certificateAuthorities". This would be like an IP address and a port.
-    - The username you would like to register.
-    - Update gateway discovery to `{ enabled: true, asLocalhost: false }` to connect to IBP.
-
-> the current default setup is to connect to a local fabric instance from VS Code
-
-```js
-{
-    "connection_file": "mychannel_fabcar_profile.json",
-    "appAdmin": "app-admin",
-    "appAdminSecret": "app-adminpw",
-    "orgMSPID": "org1msp",
-    "caName": "169.46.208.151:30404",
-    "userName": "user1",
-    "gatewayDiscovery": { "enabled": true, "asLocalhost": false }
-}
-```
+    - The eventUrl, which is the same as the peer.
+    - The channel information.
+    
 
 
 ## 7. Run the application
 
-* #### Enroll admin
-  - First, navigate to the `web-app` directory, and install the node dependencies.
+* Create the Docker container
+  - Change into the `marbles/scripts` directory
+  - Run the `	build_marbles_image.sh` script
     ```bash
-    cd web-app/server
-    npm install
-    ```
-
-  - Run the `enrollAdmin.js` script
-    ```bash
-    node enrollAdmin.js
-    ```
-
-  - You should see the following in the terminal:
-    ```bash
-    msg: Successfully enrolled admin user app-admin and imported it into the wallet
-    ```
-
-* #### Register User
-  - Run the `registerUser.js` script.
-    ```bash
-    node registerUser.js
-    ```
-
-  - You should see the following in the terminal:
-    ```bash
-    Successfully registered and enrolled admin user user1 and imported it into the wallet
+    	build_marbles_image.sh
     ```
 
 
-
-* #### Start the application server
-  - From the `server` directory, start the server.
-
+* Run the marbles application
+  - Run the docker container.
     ```bash
-    npm start
+    docker run -p 3001:3001 marbles:local
     ```
 
-* #### Start the web client
-  - In a new terminal, open the web client folder and install the dependencies.
-    ```bash
-    cd web-app/client
-    npm install
-    ```
 
-  - Start the client:
-    ```bash
-    npm start
-    ```
+You can find the app running at [http://localhost:3001/](http://localhost:3001/)
 
-You can find the app running at http://localhost:4200/
-
-<br>
-<p align="center">
-  <img src="docs/doc-gifs/application-UI.gif">
-</p>
-<br>
+## 8. Watch the blocks
 
 You can go to the IBM Blockchain Platform console to monitor your users and get information on your channel including the blocks added.
 
 <br>
 <p align="center">
-  <img src="docs/doc-gifs/channel-blocks.gif">
+  <img src="./doc-gifs/channel-blocks.gif">
 </p>
 <br>
 
+## 9. Connecting VSCode to IBM Blockchain Platform
+
+The original connection profile you downloaded can be installed as a Fabric Gateway
+
+- Import your confiration profile giving it a name
+- Create a new wallet
+- Add a new identity to the wallet, enrolling it with the MSP of `org1msp`
+- You should then be able to see the channel listed in the VSCode UI
+- You can submit a transaction  with a function such as `init_owner` and arguments like `["o0000000000006","Joe","United Marbles"]`
+- Joe should now appear on your marbles application.
 
 ## Troubleshooting
 * If you encounter an error ``discover error: access denied``, you need to set the `gatewayDiscovery` properly in your `config.json` file. This is <b>REQUIRED</b>  You must set it as follows to connect to IBP:
