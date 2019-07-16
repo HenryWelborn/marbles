@@ -170,9 +170,9 @@ for x in "${nodes[@]}"; do
   do
     sudo ssh $x mkdir -p /tmp/${StorageClass}-$i
 
-  SIZE=10Gi
+  SIZE=100Gi
   if [ $((i%2)) -eq 0 ]; then
-    SIZE=100Gi
+    SIZE=10Gi
   fi
   
 cat > /tmp/${StorageClass}-pv-${x}-${i}.yml <<EOF
