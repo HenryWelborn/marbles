@@ -160,20 +160,16 @@ kubectl create -f /tmp/${StorageClass}-storageclass.yaml
 
 #####################################################################################
 # 1. executes SSH to all the worker nodes to create directories under /tmp
-#    - Creates 5 directories per node
-#    - Odd numbers are 100Gi, Even Numbers are 10Gi
+#    - Creates 8 directories per node giving each 100Gi
 # 2. Creates PersistentVolume definitions referencing each of the directories 
 #####################################################################################
 for x in "${nodes[@]}"; do
 
-  for i in {1..5}
+  for i in {1..8}
   do
     sudo ssh $x mkdir -p /tmp/${StorageClass}-$i
 
   SIZE=100Gi
-  if [ $((i%2)) -eq 0 ]; then
-    SIZE=10Gi
-  fi
   
 cat > /tmp/${StorageClass}-pv-${x}-${i}.yml <<EOF
 apiVersion: v1
